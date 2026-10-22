@@ -1,0 +1,30 @@
+{
+  "_comment": "Copy to gemba.conf.json (or point GEMBA_CONF at your copy) and fill in your values. Read by runner/lib.py, runner/build_subject.sh and scenario-01/build_testenv.sh. Never commit your real file.",
+  "results_dir": "~/gemba-results",
+  "testenv": {
+    "_comment": "the Incus host that runs the web/db containers of the test environment; the runner reaches it over ssh and runs incus there",
+    "ssh_target": "admin@TESTENV_HOST",
+    "ssh_key": "~/.ssh/id_ed25519_testenv"
+  },
+  "lanes": {
+    "a": {
+      "_comment": "web/db: container names on the test-environment host (web<suffix>/db<suffix>); web_ip/db_ip/gw/bridge: their addresses and Incus bridge there (the scenario default 10.92.0.x is what the published runs used; other addresses work when the data is generated for them, which build_testenv.sh does). out: the generated data under scenario-01/. oc: the subject container on the runner host; subject_net: its Incus bridge (created by build_subject.sh if missing, with subject_net_cidr); subject_ip: optional fixed address; subject_addr_prefix: the start of that address (the runner waits for it after a restore).",
+      "web": "web",
+      "db": "db",
+      "web_ip": "10.92.0.11",
+      "db_ip": "10.92.0.12",
+      "gw": "10.92.0.1",
+      "bridge": "incusbr0",
+      "out": "out",
+      "oc": "subject",
+      "subject_net": "gemba-subject",
+      "subject_net_cidr": "10.0.10.1/24",
+      "subject_ip": "10.0.10.2",
+      "subject_addr_prefix": "10.0.10."
+    }
+  },
+  "opencode": {
+    "oc2": "/opt/opencode/2.0.25/opencode"
+  },
+  "model_server_hosts": ["MODEL_SERVER_HOST", "AUX_MODEL_SERVER_HOST"]
+}

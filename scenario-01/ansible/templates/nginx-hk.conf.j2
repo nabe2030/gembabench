@@ -1,0 +1,43 @@
+log_format hkmain '$remote_addr - - [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" "$host"';
+
+server {
+    listen 80 default_server;
+    listen 443 ssl default_server;
+    server_name inquiry.{{ company.domain }};
+    ssl_certificate     /etc/ssl/hk/inquiry.crt;
+    ssl_certificate_key /etc/ssl/hk/inquiry.key;
+    root /var/www/inquiry/public;
+    index index.php index.html;
+    access_log /var/log/nginx/access.log hkmain;
+    error_log /var/log/nginx/error.log;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+    }
+}
+
+server {
+    listen 80;
+    server_name www.{{ company.domain }};
+    root /var/www/corp;
+    index index.html;
+    access_log /var/log/nginx/access.log hkmain;
+    location / { try_files $uri $uri/ =404; }
+}
+
+server {
+    listen 80;
+    server_name board.{{ company.domain }};
+    root /var/www/board;
+    index index.php;
+    access_log /var/log/nginx/access.log hkmain;
+    location / { try_files $uri $uri/ =404; }
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.1-fpm.sock;
+    }
+}

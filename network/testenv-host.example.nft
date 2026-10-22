@@ -1,0 +1,30 @@
+#!/usr/sbin/nft -f
+# Test-environment host (Incus host of web/db): isolation. Example: replace the UPPER-CASE names and addresses. Does NOT flush the ruleset (Incus manages its own tables).
+# incusbr0 = 10.92.0.1/24 (web 10.92.0.11, db 10.92.0.12). ISO_IF = the private link to the runner host (RUNNER_ISO_IP); the subject network 10.0.10.0/24 is routed over it.
+table inet gemba_testenv
+delete table inet gemba_testenv
+table inet gemba_testenv {
+  chain input {
+    type filter hook input priority -10; policy accept;
+    ct state established,related accept
+    iifname "lo" accept
+    # containers: only the allow-list proxy, DHCP and DNS on the bridge address
+    iifname "incusbr0" ip daddr 10.92.0.1 tcp dport 3128 accept
+    iifname "incusbr0" udp dport { 53, 67 } accept
+    iifname "incusbr0" tcp dport 53 accept
+    iifname "incusbr0" counter log prefix "gemba-te-in-ctr-drop " drop
+    # private link: only SSH from the runner host (the runner manages incus over ssh)
+    iifname "ISO_IF" ip saddr RUNNER_ISO_IP tcp dport 22 accept
+    iifname "ISO_IF" counter log prefix "gemba-te-in-iso-drop " drop
+  }
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+    ct state established,related accept
+    # runner host and the subject network -> container sshd only
+    iifname "ISO_IF" oifname "incusbr0" ip saddr { RUNNER_ISO_IP, 10.0.10.0/24 } ip daddr 10.92.0.0/24 tcp dport 22 accept
+    iifname "incusbr0" counter log prefix "gemba-te-fwd-ctr-drop " drop
+    oifname "incusbr0" counter log prefix "gemba-te-fwd-in-drop " drop
+    iifname "ISO_IF" counter drop
+    oifname "ISO_IF" counter drop
+  }
+}
