@@ -1,0 +1,23 @@
+{
+  "_comment": "Copy to runner/servers.json (keep it private: it may hold API keys). `body` = the model under test, selected per trial/series with --body <key>. `small` = the auxiliary model for OpenCode's hidden title/summary agents (not used for the work itself); the runner takes the first one that answers. request_extras are sent in every request body (here: the thinking setting and the thinking budget read by budget_proxy.py).",
+  "body": {
+    "example-via-budget-proxy": {
+      "id": "example-provider",
+      "name": "Model under test, through the thinking-budget proxy",
+      "baseURL": "http://PROXY_ADDRESS:18090/v1",
+      "apiKey": "none",
+      "model": "<model id from /v1/models>",
+      "limit": {"context": 245760, "output": 16384},
+      "headerTimeout": 600000,
+      "chunkTimeout": 600000,
+      "request_extras": {"reasoning_effort": "medium", "reasoning_budget_tokens": 8192}
+    },
+    "smoke": {
+      "id": "smoke", "name": "any small model for a smoke test", "baseURL": "http://AUX_MODEL_SERVER_HOST:8080/v1", "apiKey": "none", "model": "<model id>",
+      "limit": {"context": 32768, "output": 4096}
+    }
+  },
+  "small": [
+    {"id": "aux-8080", "baseURL": "http://AUX_MODEL_SERVER_HOST:8080/v1", "apiKey": "none"}
+  ]
+}

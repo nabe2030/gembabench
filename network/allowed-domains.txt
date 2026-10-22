@@ -1,0 +1,7 @@
+# official distro mirrors / PHP / DB repositories only
+.ubuntu.com
+.debian.org
+.sury.org
+.mysql.com
+.postgresql.org
+ppa.launchpadcontent.net

@@ -1,0 +1,32 @@
+#!/usr/sbin/nft -f
+# Runner host: isolation of the subject container (OpenCode). Example: replace the UPPER-CASE names and the addresses with yours. Apply with `nft -f` (it does not flush other tables).
+# The subject container sits on its own bridge SUBJECT_BRIDGE (here 10.0.10.0/24, the runner host is 10.0.10.1). It may reach ONLY:
+#   - sshd of the test containers (10.92.0.0/24 port 22, routed via the test-environment host over ISO_IF)
+#   - the model server(s) and the auxiliary (title/summary) model server, or the thinking-budget proxy on the runner host itself
+# Everything else (the runner host, the LAN, the Internet, the test-environment host's management) is REJECTed so that clients fail fast.
+table inet gemba_subject
+delete table inet gemba_subject
+table inet gemba_subject {
+  set models { type ipv4_addr . inet_service; elements = { MODEL_SERVER_IP . 8080 } }
+  set small_models { type ipv4_addr . inet_service; elements = { AUX_MODEL_SERVER_IP . 8080 } }
+  chain input {
+    type filter hook input priority -10; policy accept;
+    iifname "SUBJECT_BRIDGE" udp dport { 53, 67 } accept
+    iifname "SUBJECT_BRIDGE" tcp dport 53 accept
+    iifname "SUBJECT_BRIDGE" ip daddr 10.0.10.1 tcp dport 18090 accept          # budget_proxy.py listening on the bridge address
+    iifname "SUBJECT_BRIDGE" counter log prefix "gemba-subject-in-reject " reject
+  }
+  chain forward {
+    type filter hook forward priority -10; policy accept;
+    ct state established,related accept
+    iifname "SUBJECT_BRIDGE" oifname "ISO_IF" ip daddr 10.92.0.0/24 tcp dport 22 accept
+    iifname "SUBJECT_BRIDGE" oifname "LAN_IF" ip daddr . tcp dport @models accept
+    iifname "SUBJECT_BRIDGE" oifname "LAN_IF" ip daddr . tcp dport @small_models accept
+    iifname "SUBJECT_BRIDGE" counter log prefix "gemba-subject-reject " reject
+    oifname "SUBJECT_BRIDGE" counter log prefix "gemba-subject-fwd-in-drop " drop
+  }
+  chain post {
+    type nat hook postrouting priority srcnat; policy accept;
+    iifname "SUBJECT_BRIDGE" oifname "LAN_IF" masquerade        # the route to the test containers (ISO_IF) is NOT masqueraded
+  }
+}

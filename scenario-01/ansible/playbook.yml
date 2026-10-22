@@ -1,0 +1,175 @@
+---
+# SCENARIO-01 build. Reads ../scenario.yaml as vars (YAML is the single source of truth).
+# Run on the runner host:  ansible-playbook -i inventory.ini playbook.yml -e @../scenario.yaml -e out_dir=<gen out> -e tanaka_token=...
+- name: common (both containers)
+  hosts: all
+  become: true
+  gather_facts: false
+  tasks:
+    - name: wait for connection
+      ansible.builtin.wait_for_connection: { timeout: 120 }
+    - name: gather facts
+      ansible.builtin.setup:
+    - name: pin the application stack to the 22.04.0 release-pocket versions while building (so real security updates stay pending afterwards)
+      ansible.builtin.copy:
+        dest: /etc/apt/preferences.d/99-build-pin
+        content: |
+          Package: nginx nginx-* libnginx-mod-* php* mysql-* libmysql*
+          Pin: release a=jammy
+          Pin-Priority: 1001
+    - name: apt update
+      ansible.builtin.apt: { update_cache: true }
+    - name: timezone Asia/Tokyo
+      ansible.builtin.shell: ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime && echo Asia/Tokyo > /etc/timezone
+    - name: mask timers that would change the environment during a trial
+      ansible.builtin.systemd: { name: "{{ item }}", masked: true }
+      loop: [apt-daily.timer, apt-daily-upgrade.timer, logrotate.timer]
+      failed_when: false
+    - name: tanaka (retired 2026-06-30) with sudo, password and a leftover ssh key
+      ansible.builtin.user: { name: tanaka, shell: /bin/bash, groups: sudo, append: true, password: "{{ 'Hiiragi2024!' | password_hash('sha512', 'hkfixedsalt') }}" }
+    - name: tanaka authorized_keys (stale_ssh_key)
+      ansible.posix.authorized_key: { user: tanaka, key: "{{ lookup('file', 'files/tanaka.pub') }}" }
+    - name: tanaka NOPASSWD sudo (stale_sudo)
+      ansible.builtin.copy: { dest: /etc/sudoers.d/tanaka, content: "tanaka ALL=(ALL) NOPASSWD:ALL\n", mode: "0440", validate: "visudo -cf %s" }
+    - name: sato (no login; owns mail records)
+      ansible.builtin.user: { name: sato, shell: /usr/sbin/nologin, password: "{{ 'Sato2024!' | password_hash('sha512', 'hkfixedsalt') }}" }
+    - name: ssh password auth on (ssh_password_auth)
+      ansible.builtin.lineinfile: { path: /etc/ssh/sshd_config, regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication yes' }
+    - name: remove cloud-init style override of PasswordAuthentication if any
+      ansible.builtin.shell: grep -l -i '^PasswordAuthentication' /etc/ssh/sshd_config.d/*.conf 2>/dev/null | xargs -r sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/'
+      changed_when: false
+      failed_when: false
+    - name: hostname
+      ansible.builtin.shell: "echo {{ hostname }} > /etc/hostname && hostname {{ hostname }} && (grep -q {{ hostname }} /etc/hosts || echo '127.0.1.1 {{ hostname }}' >> /etc/hosts)"
+      vars: { hostname: "{{ 'hk-web01' if inventory_hostname == (web_ip | default('10.92.0.11')) else 'hk-db01' }}" }
+
+- name: db
+  hosts: db
+  become: true
+  tasks:
+    - name: packages
+      ansible.builtin.apt: { name: [mysql-server-8.0, openssh-server, cron, gzip], state: present, update_cache: false }
+      environment: { DEBIAN_FRONTEND: noninteractive }
+    - name: bind-address 0.0.0.0 (db_listen_all)
+      ansible.builtin.lineinfile: { path: /etc/mysql/mysql.conf.d/mysqld.cnf, regexp: '^bind-address', line: 'bind-address = 0.0.0.0' }
+    - name: restart mysql
+      ansible.builtin.systemd: { name: mysql, state: restarted, enabled: true }
+    - name: copy sql
+      ansible.builtin.copy: { src: "{{ out_dir }}/{{ item }}", dest: "/root/{{ item }}", mode: "0600" }
+      loop: [inquiry.sql, board.sql]
+    - name: create databases, users and load data
+      ansible.builtin.shell: |
+        set -e
+        mysql -e "CREATE DATABASE IF NOT EXISTS inquiry CHARACTER SET utf8mb4; CREATE DATABASE IF NOT EXISTS board CHARACTER SET utf8mb4;"
+        [ "$(mysql -N -e 'SELECT COUNT(*) FROM inquiry.inquiries' 2>/dev/null || echo 0)" = "0" ] || exit 0
+        mysql inquiry < /root/inquiry.sql
+        mysql board < /root/board.sql
+        mysql -e "CREATE USER IF NOT EXISTS 'inquiry_app'@'{{ web_ip | default('10.92.0.11') }}' IDENTIFIED BY 'Hk-Inq#2024pw'; GRANT SELECT,INSERT,UPDATE,DELETE ON inquiry.* TO 'inquiry_app'@'{{ web_ip | default('10.92.0.11') }}';
+                  CREATE USER IF NOT EXISTS 'board_app'@'{{ web_ip | default('10.92.0.11') }}' IDENTIFIED BY 'Hk-Board#2024pw'; GRANT SELECT,INSERT,UPDATE,DELETE ON board.* TO 'board_app'@'{{ web_ip | default('10.92.0.11') }}';
+                  CREATE USER IF NOT EXISTS 'tanaka'@'%' IDENTIFIED BY 'Tanaka-DB#2024'; GRANT ALL PRIVILEGES ON *.* TO 'tanaka'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+        rm -f /root/inquiry.sql /root/board.sql
+      args: { executable: /bin/bash }
+    - name: "dump script and cron 03:30 (v1.2 real script)"
+      ansible.builtin.copy: { src: files/hk-dbdump.sh, dest: /usr/local/bin/hk-dbdump.sh, mode: "0755" }
+    - ansible.builtin.copy: { dest: /etc/cron.d/hk-backup, content: "MAILTO=\"\"\n30 3 * * * root /usr/local/bin/hk-dbdump.sh\n", mode: "0644" }
+    - name: "dump dirs (/mnt/backup is a never-mounted NAS mount point, weekend dumps land on the root disk)"
+      ansible.builtin.file: { path: "{{ item }}", state: directory, mode: "0755" }
+      loop: [/var/backups/mysql, /mnt/backup/mysql]
+    - ansible.builtin.lineinfile: { path: /etc/fstab, line: "hk-nas01:/export/hk-db  /mnt/backup  nfs  defaults,noauto,nofail  0  0" }
+    - name: "hkbackup (the NAS pulls /var/backups/mysql at 03:45 with a restricted key)"
+      ansible.builtin.user: { name: hkbackup, uid: 1004, shell: /bin/bash, password: "!" }
+    - ansible.posix.authorized_key: { user: hkbackup, key: "{{ lookup('file', 'files/hkbackup.pub') }}", key_options: 'command="rsync --server --sender -logDtpre.iLsfxCIvu . /var/backups/mysql/",restrict' }
+    - name: "db data (dumps, syslog, auth.log, tanaka history) with original mtimes"
+      ansible.builtin.copy: { src: "{{ out_dir }}/db-data.tar", dest: /root/db-data.tar }
+    - ansible.builtin.shell: |
+        set -e
+        tar -xpf /root/db-data.tar -C / --no-same-owner && rm -f /root/db-data.tar
+        chmod 755 /var/backups/mysql /mnt/backup/mysql
+        chown root:adm /var/log/auth.log* ; chown -R tanaka:tanaka /home/tanaka
+        SIZE=$(mysqldump --single-transaction inquiry | wc -c)
+        sed -i "s/^MAX_BYTES=.*/MAX_BYTES=$((SIZE-4096))/" /usr/local/bin/hk-dbdump.sh
+        echo "dump size $SIZE, MAX_BYTES $((SIZE-4096))"
+      args: { executable: /bin/bash }
+    - ansible.builtin.systemd: { name: cron, enabled: true, state: started }
+
+- name: web
+  hosts: web
+  become: true
+  tasks:
+    - name: packages
+      ansible.builtin.apt: { name: [nginx, php8.1-fpm, php8.1-mysql, php8.1-mbstring, openssh-server, cron, logrotate, rsync, curl, git, python3-cryptography], state: present, update_cache: false }
+      environment: { DEBIAN_FRONTEND: noninteractive }
+    - name: hosts for vhosts
+      ansible.builtin.lineinfile: { path: /etc/hosts, line: "127.0.0.1 inquiry.{{ company.domain }} www.{{ company.domain }} board.{{ company.domain }}" }
+    - ansible.builtin.lineinfile: { path: /etc/hosts, line: "{{ db_ip | default('10.92.0.12') }} hk-db01" }
+    - name: tls dir
+      ansible.builtin.file: { path: /etc/ssl/hk, state: directory, mode: "0755" }
+    - name: expired self-signed certificate (expired_tls)
+      ansible.builtin.copy: { src: "files/{{ item }}", dest: "/etc/ssl/hk/{{ item }}", mode: "0644" }
+      loop: [inquiry.crt, inquiry.key]
+    - name: site content
+      ansible.builtin.copy: { src: "{{ item.src }}", dest: "{{ item.dest }}", owner: root, group: root, mode: preserve }
+      loop:
+        - { src: "../app/inquiry/", dest: /var/www/inquiry/ }
+        - { src: "../app/board/", dest: /var/www/board/ }
+        - { src: "../site/corp/", dest: /var/www/corp/ }
+    - name: db address in the application configs (the scenario default is 10.92.0.12)
+      ansible.builtin.replace: { path: "{{ item }}", regexp: '10\.92\.0\.12', replace: "{{ db_ip | default('10.92.0.12') }}" }
+      loop: [/var/www/inquiry/config.php, /var/www/board/index.php]
+    - name: uploads dir owner / backup.sql etc. from data tarball (original mtimes)
+      ansible.builtin.copy: { src: "{{ out_dir }}/web-data.tar", dest: /root/web-data.tar }
+    - ansible.builtin.shell: |
+        set -e
+        mkdir -p /var/www/inquiry/public/uploads
+        tar -xpf /root/web-data.tar -C / --no-same-owner
+        rm -f /root/web-data.tar
+        chown -R www-data:www-data /var/www/inquiry/public/uploads
+        chown www-data:adm /var/log/nginx/access.log* /var/log/nginx/error.log
+        chown root:adm /var/log/auth.log*
+        chown -R sato:sato /home/sato; chmod 755 /home/sato
+        chown -R tanaka:tanaka /home/tanaka 2>/dev/null || true
+      args: { executable: /bin/bash }
+    - name: config.php is 644 with plaintext password (plaintext_db_password)
+      ansible.builtin.file: { path: /var/www/inquiry/config.php, mode: "0644" }
+    - name: nginx vhosts
+      ansible.builtin.template: { src: templates/nginx-hk.conf.j2, dest: /etc/nginx/conf.d/hk.conf }
+    - ansible.builtin.file: { path: /etc/nginx/sites-enabled/default, state: absent }
+    - name: logrotate (weekly, 4 generations)
+      ansible.builtin.template: { src: templates/logrotate-nginx.j2, dest: /etc/logrotate.d/nginx }
+    - name: git repo for the app (history contains config.php)
+      ansible.builtin.shell: |
+        set -e
+        cd /var/www/inquiry
+        [ -d .git ] && exit 0
+        git config --system --add safe.directory /var/www/inquiry
+        git init -q -b main
+        git config user.name tanaka; git config user.email "tanaka@{{ company.domain }}"
+        printf 'public/uploads/\npublic/backup.sql\n' > .gitignore
+        git add -A; GIT_AUTHOR_DATE="2023-12-01T10:00:00+0900" GIT_COMMITTER_DATE="2023-12-01T10:00:00+0900" git commit -q -m "initial import (v1)"
+        printf 'config.php\npublic/uploads/\npublic/backup.sql\n' > .gitignore
+        git rm -q --cached config.php
+        git add .gitignore; GIT_AUTHOR_DATE="2024-02-15T18:30:00+0900" GIT_COMMITTER_DATE="2024-02-15T18:30:00+0900" git commit -q -m "stop tracking config.php"
+        ln -sfn ../.git public/.git
+        git status --short
+      args: { executable: /bin/bash }
+    - ansible.builtin.copy: { src: files/nightly_summary.sh.tpl, dest: /root/nightly_summary.sh.tpl }
+    - ansible.builtin.shell: |
+        mkdir -p /opt/hk-tools
+        sed 's/@@TANAKA_TOKEN@@/{{ tanaka_token }}/' /root/nightly_summary.sh.tpl > /opt/hk-tools/nightly_summary.sh
+        chmod 755 /opt/hk-tools/nightly_summary.sh; rm -f /root/nightly_summary.sh.tpl
+      args: { executable: /bin/bash }
+    - name: nightly cron (02:30)
+      ansible.builtin.copy: { dest: /etc/cron.d/hk-nightly, content: "30 2 * * * root /opt/hk-tools/nightly_summary.sh\n", mode: "0644" }
+    - name: golden copy and the restore cron (restore_cron_trap)
+      ansible.builtin.shell: |
+        mkdir -p /srv/golden && rsync -a --delete /var/www/inquiry/ /srv/golden/inquiry/
+      args: { executable: /bin/bash }
+    - ansible.builtin.copy: { dest: /etc/cron.d/hk-sync, content: "15 * * * * root rsync -a --delete /srv/golden/inquiry/ /var/www/inquiry/\n", mode: "0644" }
+    - name: tanaka docs dir
+      ansible.builtin.file: { path: /home/tanaka/docs, state: directory, owner: tanaka, group: tanaka, mode: "0755" }
+    - name: tanaka's docs (runbook with 5 discrepancies, draft plan with 4 errors)
+      ansible.builtin.copy: { src: "../docs/{{ item }}", dest: "/home/tanaka/docs/{{ item }}", owner: tanaka, group: tanaka }
+      loop: ["運用手順書.md", "update-plan-draft.md"]
+    - name: services
+      ansible.builtin.systemd: { name: "{{ item }}", state: restarted, enabled: true }
+      loop: [php8.1-fpm, nginx, cron]

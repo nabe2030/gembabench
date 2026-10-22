@@ -1,0 +1,17 @@
+{
+ "_comment": "Reference for the comparable body fields of every configuration (see condguard.py): the conditions of the published v0.1 runs (reasoning medium / budget 8192, output 16384). A body that differs stops the trial unless BENCH_ALLOW_COND_DIFF=<reason> is set; change this file only on purpose.",
+ "signature": {
+  "request_extras": {
+   "reasoning_effort": "medium",
+   "reasoning_budget_tokens": 8192
+  },
+  "model_options": null,
+  "headerTimeout": 600000,
+  "chunkTimeout": 600000,
+  "timeout": null,
+  "limit_output": 16384
+ },
+ "exempt_bodies": [
+  "smoke"
+ ]
+}
