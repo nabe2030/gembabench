@@ -69,6 +69,8 @@ Aider Polyglot や SWE-bench は、モデルがコードを読み書きする力
 - DGX Spark の T5 r2: 上限の 150 分に達した。
 - DGX Spark の T5 r3・T6 r3、RTX 4060 Ti の T3 r2: モデルが成果物なしで自分で終えた（途中停止）。
 
+**2 つ目のモデル: DGX Spark での Nemotron 3.5 Super VL**（18 本＋思考最大の 6 本、同じ条件）: [`results/nemotron-3.5-super-vl/`](results/nemotron-3.5-super-vl/)（英語）。解説の記事（日本語）: https://qiita.com/nabe2030/items/fe4261db16d9b269a8e0
+
 ## 仕組み
 
 ```

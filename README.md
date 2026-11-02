@@ -55,6 +55,8 @@ Median [min–max] over the 3 repetitions; full table in `results/summary.md`, e
 
 Endings other than normal: DGX Spark T5 r2 hit the 150-minute limit, DGX Spark T5 r3 and T6 r3 and RTX 4060 Ti T3 r2 ended early without a deliverable (the model stopped by itself). These count as they are.
 
+**Second model: Nemotron 3.5 Super VL on DGX Spark** (18 trials + 6 with full reasoning, same conditions): see [`results/nemotron-3.5-super-vl/`](results/nemotron-3.5-super-vl/). Short version: finishes every run, best coding score we have measured, but drops `ssh` mid-task and under-reports the servers.
+
 ## How it works
 
 ```
