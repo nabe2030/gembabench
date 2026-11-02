@@ -1,0 +1,28 @@
+reasoning,task,run,duration_min,score,max_score,shell_calls,shell_calls_via_ssh,max_thinking_chunks_per_request,median_thinking_chunks_per_request,thinking_cap_hits,finish
+medium,T1,1,41.4,23,45,56,35,3736,172,0,self-completed
+medium,T1,2,17.9,41,45,38,30,1557,392,0,self-completed
+medium,T1,3,14.4,28,45,13,11,1198,160,0,self-completed
+medium,T2,1,18.3,4,8,,,,,0,self-completed
+medium,T2,2,16.8,5,8,,,,,0,self-completed
+medium,T2,3,15.1,6,8,,,,,0,self-completed
+medium,T3,1,18.2,7,8,,,,,0,self-completed
+medium,T3,2,16.0,8,8,,,,,0,self-completed
+medium,T3,3,18.5,7,8,,,,,0,self-completed
+medium,T3b,1,,4,6,,,,,0,self-completed
+medium,T3b,2,,2,6,,,,,0,self-completed
+medium,T3b,3,,2,6,,,,,0,self-completed
+medium,T4,1,116.5,28,31,,,,,0,self-completed (49 min of cron wait)
+medium,T4,2,27.4,31,31,,,,,0,self-completed
+medium,T4,3,70.4,25,31,,,,,0,self-completed
+medium,T5,1,11.5,11,45,18,2,1329,231,0,self-completed (dropped ssh)
+medium,T5,2,31.2,27,45,78,53,2813,122,0,self-completed
+medium,T5,3,16.6,34,45,28,26,1210,120,0,self-completed
+medium,T6,1,11.9,23,23,,,,,0,self-completed
+medium,T6,2,11.0,23,23,,,,,0,self-completed
+medium,T6,3,9.3,23,23,,,,,0,self-completed
+full,T1,1,15.9,0,45,23,2,2313,394,0,self-completed (dropped ssh)
+full,T1,2,17.5,6,45,23,2,3058,318,0,self-completed (dropped ssh)
+full,T1,3,22.7,37,45,29,28,2746,411,0,self-completed
+full,T5,1,20.1,11,45,26,2,2847,716,0,self-completed (dropped ssh)
+full,T5,2,31.9,35,45,57,56,3108,198,0,self-completed
+full,T5,3,28.6,42,45,45,43,3719,283,0,self-completed
